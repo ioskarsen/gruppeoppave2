@@ -1,0 +1,142 @@
+#!/bin/bash
+# ldap-server.sh
+
+#Endrer navnet på serveren før reboot
+hostname dave3610-server-gruppe8
+#Endrer navnet på serveren permanent
+echo "dave3610-server-gruppe8" > /etc/hostname  
+#Må også endres her
+sed -i 's/dave3610-Server/dave3610-Server-gruppe8/g' /etc/hosts
+
+#Oppretter katalogen /NFS/gruppe8
+mkdir -p /NFS/gruppe8 
+
+#Installerer nødvendige programmer
+DEBIAN_FRONTEND=noninteractive apt-get install slapd
+DEBIAN_FRONTEND=noninteractive apt-get install ldap-utils
+DEBIAN_FRONTEND=noninteractive apt-get install libldap-2.4-2
+DEBIAN_FRONTEND=noninteractive apt-get install libnss-ldap
+
+#Stopper ldap-server
+service slapd stop 
+
+#Sletter alle filer i /var/lib/ldap/*
+rm ­rf /var/lib/ldap/*
+
+#endrer filen /etc/ldap/slapd.conf
+echo "# Include Schemas" > /etc/ldap/slapd.conf
+echo "include         /etc/ldap/schema/core.schema" >> /etc/ldap/slapd.conf
+echo "include         /etc/ldap/schema/cosine.schema" >> /etc/ldap/slapd.conf
+echo "include         /etc/ldap/schema/nis.schema" >> /etc/ldap/slapd.conf
+echo "include         /etc/ldap/schema/inetorgperson.schema" >> /etc/ldap/slapd.conf
+echo "# Where the dynamically loaded modules are stored" >> /etc/ldap/slapd.conf
+echo "modulepath      /usr/lib/ldap" >> /etc/ldap/slapd.conf
+echo "moduleload      back_bdb" >> /etc/ldap/slapd.conf
+echo "# bdb database definitions" >> /etc/ldap/slapd.conf
+echo "database        bdb" >> /etc/ldap/slapd.conf 
+echo "# Define Domain components and Root distinguished name (Manager)" >> /etc/ldap/slapd.conf
+echo "suffix          "dc=dave3610,dc=hioa,dc=no"" >> /etc/ldap/slapd.conf
+echo "rootdn          "cn=admin,dc=dave3610,dc=hioa,dc=no"" >> /etc/ldap/slapd.conf
+echo "# Where the database file are physically stored for database #1" >> /etc/ldap/slapd.conf
+echo "directory       "/var/lib/ldap"" >> /etc/ldap/slapd.conf
+echo "# rootpw         hemmelig" >> /etc/ldap/slapd.conf
+echo "rootpw          {SSHA}kXuh7Wo65e8eMsRBuhMcqKThir2ZWSE5" >> /etc/ldap/slapd.conf
+echo "# slapd process ID file" >> /etc/ldap/slapd.conf
+echo "pidfile         /var/run/slapd/slapd.pid" >> /etc/ldap/slapd.conf
+
+# evt cat text.txt > /etc/ldap/slapd.conf
+
+#tar backup av filen /etc/default/slapd
+cp /etc/default/slapd /etc/default/backup_slapd
+
+#endrer filen /etc/default/slapd 
+echo "SLAPD_CONF=/etc/ldap/slapd.conf" > /etc/default/slapd
+echo "SLAPD_USER="openldap"" >> /etc/default/slapd
+echo "SLAPD_GROUP="openldap"" >> /etc/default/slapd
+echo "SLAPD_PIDFILE=" >> /etc/default/slapd
+echo "SLAPD_SERVICES="ldap:/// ldaps:/// ldapi:///"" >> /etc/default/slapd
+echo "SLAPD_SENTINEL_FILE=/etc/ldap/noslapd" >> /etc/default/slapd
+echo "SLAPD_OPTIONS="­f /etc/ldap/slapd.conf"" >> /etc/default/slapd
+
+#starter ldap serveren
+service slapd start
+
+#oppretter filen base.ldif og legger til tekst
+echo "dn: dc=dave3610,dc=hioa,dc=no" > base.ldif
+echo "objectClass: top" >> base.ldif
+echo "objectClass: dcObject" >> base.ldif
+echo "objectClass: organization" >> base.ldif
+echo "dc: dave3610" >> base.ldif
+echo "o: Dave3610" >> base.ldif
+echo "dn: ou=People,dc=dave3610,dc=hioa,dc=no" >> base.ldif
+echo "objectClass: organizationUnit" >> base.ldif
+echo "ou: People" >> base.ldif
+echo "dn: ou=Groups,dc=dave3610,dc=hioa,dc=no" >> base.ldif
+echo "objectClass: organization" >> base.ldif
+echo "ou: Groups" >> base.ldif
+
+#Legger base.ldif på ldap-serveren
+
+ldapadd -D "cn=admin,dc=dave3610,dc=hioa,dc=no" -w 'hemmelig' -f base.ldif
+
+#Installererer ldapscripts
+
+apt-get install ldapscripts
+
+#Legger til masse i filen /etc/ldapscripts/ldapscripts.conf
+
+echo "#Global suffixes" > /etc/ldapscripts/ldapscripts.conf
+echo "SUFFIX="dc=dave3610,dc=hioa,dc=no" # Global suffix" >> /etc/ldapscripts/ldapscripts.conf
+echo "GSUFFIX="ou=Groups"" >> /etc/ldapscripts/ldapscripts.conf
+echo "USUFFIX="ou=People"" >> /etc/ldapscripts/ldapscripts.conf
+echo "#Bind info for admin-user" >> /etc/ldapscripts/ldapscripts.conf
+echo "BINDDN="cn=admin,dc=dave3610,dc=hioa,dc=no"" >> /etc/ldapscripts/ldapscripts.conf
+echo "BINDPWDFILE="/etc/ldapscripts/ldapscripts.passwd"" >> /etc/ldapscripts/ldapscripts.conf
+echo "#Set default start info for UID/GID/MID when not given as param" >> /etc/ldapscripts/ldapscripts.conf
+echo "GIDSTART="10000" # Group ID" >> /etc/ldapscripts/ldapscripts.conf
+echo "UIDSTART="10000" # User ID" >> /etc/ldapscripts/ldapscripts.conf
+echo "MIDSTART="20000" # Machine ID" >> /etc/ldapscripts/ldapscripts.conf
+echo "#Object type of groups getting created" >> /etc/ldapscripts/ldapscripts.conf
+echo "GCLASS="posixGroup" # Leave "posixGroup" here if not sure !" >> /etc/ldapscripts/ldapscripts.conf
+echo "#Userproperties" >> /etc/ldapscripts/ldapscripts.conf
+echo "USHELL="/bin/bash"" >> /etc/ldapscripts/ldapscripts.conf
+echo "UHOMES="/NFS/home/%u" # You may use %u for username here" >> /etc/ldapscripts/ldapscripts.conf
+echo "CREATEHOMES="yes" # Create home directories and set rights ?" >> /etc/ldapscripts/ldapscripts.conf
+echo "#Set password generation to be made by slappaswd" >> /etc/ldapscripts/ldapscripts.conf
+echo "PASSWORDGEN="pwgen"" >> /etc/ldapscripts/ldapscripts.conf
+echo "#Remember the passwords, log them to file" >> /etc/ldapscripts/ldapscripts.conf
+echo "#WARNING: Remember to delete after creating new users" >> /etc/ldapscripts/ldapscripts.conf
+echo "RECORDPASSWORDS="yes"" >> /etc/ldapscripts/ldapscripts.conf
+echo "PASSWORDFILE="/var/log/ldapscripts_passwd.log"" >> /etc/ldapscripts/ldapscripts.conf
+echo "#Global logfile for script" >> /etc/ldapscripts/ldapscripts.conf
+echo "LOGFILE="/var/log/ldapscripts.log"" >> /etc/ldapscripts/ldapscripts.conf
+echo "#Temp folder" >> /etc/ldapscripts/ldapscripts.conf
+echo "TMPDIR="/tmp"" >> /etc/ldapscripts/ldapscripts.conf
+echo "#OpenLDAP client commands" >> /etc/ldapscripts/ldapscripts.conf
+echo "LDAPSEARCHBIN="/usr/bin/ldapsearch"" >> /etc/ldapscripts/ldapscripts.conf
+echo "LDAPADDBIN="/usr/bin/ldapadd"" >> /etc/ldapscripts/ldapscripts.conf
+echo "LDAPDELETEBIN="/usr/bin/ldapdelete"" >> /etc/ldapscripts/ldapscripts.conf
+echo "LDAPMODIFYBIN="/usr/bin/ldapmodify"" >> /etc/ldapscripts/ldapscripts.conf
+echo "LDAPMODRDNBIN="/usr/bin/ldapmodrdn"" >> /etc/ldapscripts/ldapscripts.conf
+echo "LDAPPASSWDBIN="/usr/bin/ldappasswd"" >> /etc/ldapscripts/ldapscripts.conf
+echo "#Getent commands to use. Leave blank for auto-guess" >> /etc/ldapscripts/ldapscripts.conf
+echo "GETENTPWCMD=""" >> /etc/ldapscripts/ldapscripts.conf
+echo "GETENTGRCMD=""" >> /etc/ldapscripts/ldapscripts.conf
+echo "#Template files for users getting created" >> /etc/ldapscripts/ldapscripts.conf
+echo "#Leave blank for default template" >> /etc/ldapscripts/ldapscripts.conf
+echo "GTEMPLATE=""" >> /etc/ldapscripts/ldapscripts.conf
+echo "UTEMPLATE=""" >> /etc/ldapscripts/ldapscripts.conf
+echo "MTEMPLATE=""" >> /etc/ldapscripts/ldapscripts.conf
+
+sh -c "echo -n 'hemmelig' > /etc/ldapscripts/ldapscripts.passwd"
+chmod 400 /etc/ldapscripts/ldapscripts.passwd
+
+#Opprette gruppe 
+ldapaddgroup ldapgruppe8 30008
+
+#Opprette brukere
+ldapadduser s194154 194154 30008
+ldapadduser s198538 198538 30008
+ldapadduser s198507 198507 30008
+ldapadduser s189119 189119 30008
+
